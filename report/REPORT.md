@@ -41,6 +41,40 @@ Thí nghiệm: voxel 0.1 m → RANSAC tách mặt đất (numpy, seed = 0) → D
 - Thứ bị ảnh hưởng nặng là **lát thấp 0–0.5 m**: chỉ còn 43.2% điểm ở 0.3 m và 29.1% ở 0.4 m (so với 86.7% ở 0.1 m). Một vật cao dưới 0.5 m sẽ mất phần lớn điểm, đúng câu hỏi "vật thấp sát đất" của topic.
 - `eps` không đổi số điểm, chỉ đổi cách gom: eps 0.3 m tách vụn (99.5 cluster/frame, 1 người đi bộ 14.5 m bị vỡ thành các mảnh < 10 điểm), eps 0.8 m gộp mạnh (40.3 cluster/frame). Latency toàn pipeline 164–196 ms trên CPU, gần như không phụ thuộc tham số.
 
+### Bonus
+
+**[B1] So sánh 2 cách tách mặt đất: RANSAC (`dist_thr = 0.2 m`) với cắt độ cao cố định (`z_velo < −1.5 m`, tức ≈ 0.23 m trên mặt đường phẳng).** Cùng voxel 0.1 m, eps 0.5 m, chạy trên **cả 20 frame** KITTI (87 vật trong ROI: 66 xe, 18 người đi bộ, 3 cyclist). File: `results/bonus_b1_ground_compare*.csv`.
+
+| Metric | RANSAC 0.2 m | Cắt độ cao −1.5 m |
+|---|---|---|
+| % điểm còn lại: người đi bộ / xe | 85.6 / 84.9 | 98.6 / 93.3 |
+| % điểm lát thấp 0–0.5 m còn lại: người đi bộ | 64.9 | 93.8 |
+| Người đi bộ thành cluster | 17/18 (94.4%) | 18/18 (100%) |
+| Xe thành cluster | 65/66 | 66/66 |
+| Cụm dẹt (dày < 0.2 m, > 2 m²: ứng viên mặt đường báo nhầm), tổng 20 frame | **66** | **95** |
+| Thời gian bước tách mặt đất p50 | 32.1 ms | 0.2 ms |
+
+- Cắt độ cao giữ vật tốt hơn và nhanh hơn ~150 lần, nhưng **giả định đường phẳng và LiDAR cao đúng 1.73 m**: ở frame 000009, 000011, 000049 RANSAC có 0 cụm dẹt còn cắt độ cao có 6 / 8 / 4, tức có những mặt phẳng rộng, mỏng (có thể là đoạn đường dốc, vỉa hè hoặc bãi cỏ nghiêng, chưa kiểm chứng từng cụm) nằm cao hơn −1.5 m và bị báo là vật cản. Trên robot có rung lắc (pitch) hoặc dốc, cách này sẽ báo nhầm nhiều hơn.
+- RANSAC tự thích nghi với độ nghiêng của mặt đường nhưng vẫn là 1 mặt phẳng nên vẫn còn cụm dẹt (fail 01), và cắt nhiều hơn ở phần chân vật. Lưu ý: cột "lát thấp" của cắt độ cao tính độ cao bằng `z + 1.73`, không cùng mốc với RANSAC, nên chỉ so sánh tương đối.
+
+**[B2] Stress test: nhiễu Gauss (σ = 0 / 0.02 / 0.05 / 0.1 m) và random dropout (giữ 100 / 70 / 50 / 30% điểm), seed = 0.** Pipeline RANSAC 0.2 m, eps 0.5 m, 4 frame CP3. Vật bị suy giảm xuống dưới 10 điểm vẫn được tính là **bỏ sót** (không bị loại khỏi mẫu). File: `results/bonus_b2_stress*.csv`, hình `results/figures/bonus_b2_stress.png`. Chạy lại 2 lần ra CSV giống hệt.
+
+![B2](../results/figures/bonus_b2_stress.png)
+
+- Nhiễu tới 10 cm **không làm mất vật nào** (xe 7/7, người đi bộ 7/8 ở mọi mức, người bị mất là ca fail 02 có sẵn), vì voxel 0.1 m lấy trung bình điểm. Cái mất là lát thấp của người đi bộ (68.9% → 64.2%) và cụm của người 14.5 m vỡ dần (8 → 5 điểm).
+- Dropout an toàn tới 50%. Ở **30%**, người đi bộ ở **34.2 m** (frame 000011) còn **0 điểm** trong box → tỉ lệ phát hiện người đi bộ giảm 87.5% → 75%, xe vẫn 100%. Số cluster/frame giảm 69 → 43: pipeline "trông sạch hơn" trong khi thực ra mất vật xa.
+
+**[B3] Latency từng bước, đo đúng cách.** 4 frame × 2 cách tách mặt đất × (1 warm-up + 20 lần), mỗi dòng CSV là 1 lần chạy: `results/bonus_b3_latency_runs.csv` (có cột `warmup`, cột phần cứng). Phần cứng: **AMD Ryzen 5 5600H, RAM 7.3 GB, Windows 11, Python 3.11.9, chỉ chạy CPU** (máy có RTX 3050 Ti nhưng pipeline không dùng GPU).
+
+| Bước (ms) | RANSAC p50 / p95 | Cắt độ cao p50 / p95 |
+|---|---|---|
+| Voxel downsample (open3d) | 113.4 / 156.8 | 103.8 / 131.7 |
+| Tách mặt đất | 32.1 / 57.8 | 0.2 / 0.4 |
+| DBSCAN (open3d) | 18.3 / 36.1 | 19.6 / 39.7 |
+| **Tổng** | **166.9 / 211.0** | **128.8 / 154.1** |
+
+- Bước chậm nhất là **voxel downsample** (~70% thời gian), không phải RANSAC hay DBSCAN. Phần lớn là chi phí chuyển ~110 nghìn điểm từ numpy sang open3d. Ở 10 Hz (100 ms/frame) pipeline chưa đạt real-time trên CPU này; nên làm voxel bằng numpy hoặc cắt ROI trước khi downsample.
+
 ## 3. Failure case
 
 Nêu khi nào hệ thống hoặc phương pháp fail, vì sao fail, và liên hệ tới lớp nào trong 6 lớp debug: I/O, Geometry, Time, Preprocess, Model, Metric.
@@ -71,7 +105,10 @@ Hai failure case ngược chiều nhau, cho thấy `distance_threshold` không c
 
 Use-case cụ thể (ADAS / robot / drone), trade-off và bước tiếp theo.
 
-[ĐIỀN]
+- **Use-case:** robot tự hành trong kho (AMR), tốc độ ≤ 2 m/s, vật cản cần bắt được gồm cả vật thấp: pallet (~0.15 m), xe đẩy, người ngồi xổm.
+- **Chọn tham số:** RANSAC `dist_thr` **0.1 m** (không dùng 0.3 m: lát 0–0.5 m chỉ còn 43%), eps **0.5 m** (0.3 m làm vỡ người đi bộ, 0.8 m gộp vật gần nhau), cluster tối thiểu 10 điểm. Sàn kho phẳng hơn đường phố, nên ngưỡng 0.1 m ít bị lỗi fail 01 hơn trên KITTI.
+- **Trade-off:** ngưỡng thấp → báo nhầm mặt sàn là vật cản (fail 01, robot phanh vô cớ); ngưỡng cao → mất vật thấp và vật xa ít điểm (fail 02). Với robot, phanh nhầm rẻ hơn đâm vào pallet, nên ưu tiên ngưỡng thấp, rồi lọc cụm dẹt (dày < 0.2 m, diện tích > 2 m²) thay vì tăng ngưỡng.
+- **Bước tiếp theo:** (1) fit mặt đất theo từng ô lưới thay cho 1 mặt phẳng; (2) đo recall trên vật thấp thật (KITTI không có label pallet, cần tự thu dữ liệu kho); (3) tăng tốc voxel để đạt 10 Hz (hiện p50 167 ms trên Ryzen 5 5600H, B3); (4) giám sát khi chạy: cảnh báo nếu số cụm dẹt > 0 trong vùng 5 m, hoặc số cluster/frame giảm đột ngột (dấu hiệu mất điểm như B2).
 
 ## 5. Cách chạy lại
 
@@ -97,7 +134,22 @@ python -m src.plot_obstacle_sweep
 
 # CP4: ảnh failure case
 python -m src.fail_cases
+
+# Bonus [B1] [B2] [B3] — mỗi lệnh có --help đầy đủ ([B4])
+python -m src.exp_obstacle_bonus compare     # B1, 20 frame KITTI
+python -m src.exp_obstacle_bonus stress      # B2, tạo results/figures/bonus_b2_stress.png
+python -m src.exp_obstacle_bonus latency     # B3, mỗi dòng CSV là 1 lần chạy
 ```
+
+**[B4] Tool dùng lại được:** `src/exp_obstacle_sweep.py` và `src/exp_obstacle_bonus.py` có argparse, mọi tham số đều có `help=` và in giá trị mặc định, chạy không tham số vẫn ra kết quả. Xem hướng dẫn bằng:
+
+```bash
+python -m src.exp_obstacle_sweep --help
+python -m src.exp_obstacle_bonus --help
+python -m src.exp_obstacle_bonus stress --help
+```
+
+Ví dụ dùng lại cho dataset/frame khác: `python -m src.exp_obstacle_sweep --frames 000016 000049 --dist-levels 0.05 0.1 0.15 --out results/my_sweep.csv`.
 
 ## 6. Khai báo sử dụng AI
 
@@ -105,4 +157,4 @@ Ghi rõ đã dùng công cụ AI nào, dùng vào việc gì, và bạn đã t�
 
 | Công cụ | Dùng cho việc gì | Bạn đã kiểm chứng thế nào |
 |---|---|---|
-| Claude Code (Claude Opus 5.5) | Viết 2 hàm TODO(CP2), `src/obstacle_demo.py`, `src/exp_obstacle_sweep.py`, `src/plot_obstacle_sweep.py` và bản nháp các mục REPORT. Không dùng script mẫu topic A (chỉ chép lại hàm `points_in_box`). | `python -m src.test_projection` pass; 3 lệnh overlay khớp đúng 3910 / 19946 / 3120 điểm; mặt phẳng RANSAC có pháp tuyến ≈ (0, 0, 1) và cách sensor ≈ 1.7 m; chạy lại thí nghiệm 2 lần ra CSV giống hệt; [ĐIỀN: phần tự kiểm tra của bạn] |
+| Claude Code (Claude Opus 5.5) | Viết 2 hàm TODO(CP2), `src/obstacle_demo.py`, `src/exp_obstacle_sweep.py`, `src/plot_obstacle_sweep.py`, `src/fail_cases.py`, `src/exp_obstacle_bonus.py` và bản nháp các mục REPORT. Không dùng script mẫu topic A (chỉ chép lại hàm `points_in_box`). | `python -m src.test_projection` pass; 3 lệnh overlay khớp đúng 3910 / 19946 / 3120 điểm; mặt phẳng RANSAC có pháp tuyến ≈ (0, 0, 1) và cách sensor ≈ 1.7 m; chạy lại thí nghiệm 2 lần ra CSV giống hệt; [ĐIỀN: phần tự kiểm tra của bạn] |

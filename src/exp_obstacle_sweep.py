@@ -24,6 +24,7 @@ CLASS_GROUP = {"Pedestrian": "Pedestrian", "Person_sitting": "Pedestrian", "Cycl
                "Car": "Car", "Van": "Car", "Truck": "Car"}
 ROI = dict(x=(0.0, 40.0), y=(-20.0, 20.0))   # vùng quan tâm phía trước xe (velodyne frame, mét)
 LOW_H = 0.5                                   # lát thấp 0–0.5 m trên mặt đất (vật thấp sát đất)
+SENSOR_H = 1.73                               # độ cao gắn LiDAR của KITTI (m)
 MIN_PTS = 10                                  # số điểm tối thiểu để tính là "còn thấy vật" / cluster hợp lệ
 
 
@@ -66,6 +67,14 @@ def ransac_ground(xyz: np.ndarray, dist_thr: float, iters: int = 500, seed: int 
     return np.abs(height) < dist_thr, height
 
 
+def height_ground(xyz: np.ndarray, z_cut: float, sensor_h: float = SENSOR_H):
+    """Tách mặt đất bằng ngưỡng độ cao cố định: điểm có z_velo < z_cut là ground (cách so sánh B1).
+
+    Độ cao trên mặt đất xấp xỉ = z_velo + sensor_h (giả định đường phẳng, LiDAR cao sensor_h).
+    """
+    return xyz[:, 2] < z_cut, xyz[:, 2] + sensor_h
+
+
 def dbscan(xyz: np.ndarray, eps: float, min_points: int = 5) -> np.ndarray:
     pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(xyz))
     return np.asarray(pcd.cluster_dbscan(eps=eps, min_points=min_points))
@@ -76,24 +85,34 @@ def in_roi(xyz: np.ndarray) -> np.ndarray:
             & (xyz[:, 1] >= ROI["y"][0]) & (xyz[:, 1] <= ROI["y"][1]))
 
 
-def pipeline(xyz: np.ndarray, voxel: float, dist_thr: float, eps: float):
+def pipeline(xyz: np.ndarray, voxel: float, dist_thr: float, eps: float,
+             ground_method: str = "ransac", z_cut: float = -1.5):
     down = voxel_down(xyz, voxel)
-    ground, height = ransac_ground(down, dist_thr)
+    if ground_method == "ransac":
+        ground, height = ransac_ground(down, dist_thr)
+    else:
+        ground, height = height_ground(down, z_cut)
     keep = ~ground & in_roi(down)
     labels = dbscan(down[keep], eps) if keep.any() else np.zeros(0, int)
     return down, ground, height, keep, labels
 
 
-def run_one(fr: dict, voxel: float, dist_thr: float, eps: float) -> tuple[dict, list[dict]]:
+def run_one(fr: dict, voxel: float, dist_thr: float, eps: float,
+            ground_method: str = "ransac", z_cut: float = -1.5) -> tuple[dict, list[dict]]:
     xyz = fr["points"][:, :3]
     xyz = xyz[np.isfinite(xyz).all(axis=1)]
-    down, ground, height, keep, labels = pipeline(xyz, voxel, dist_thr, eps)
+    down, ground, height, keep, labels = pipeline(xyz, voxel, dist_thr, eps, ground_method, z_cut)
     obst = down[keep]
 
     # Thống kê cluster: chỉ tính cluster >= MIN_PTS điểm
     ids, counts = np.unique(labels[labels >= 0], return_counts=True)
     big = ids[counts >= MIN_PTS]
     near = min((np.linalg.norm(obst[labels == c, :2], axis=1).min() for c in big), default=np.nan)
+    # Cụm "dẹt" (như fail_01): dày < 0.2 m nhưng phủ > 2 m², gần như chắc chắn là mặt đường bị sót
+    flat = 0
+    for c in big:
+        ext = np.ptp(obst[labels == c], axis=0)
+        flat += int(ext[2] < 0.2 and ext[0] * ext[1] > 2.0)
 
     # Đối chiếu với label: điểm trong 3D box trước/sau tách mặt đất, và cluster lớn nhất chứa chúng
     cam_down = velo_to_cam(down, fr["calib"])
@@ -124,7 +143,7 @@ def run_one(fr: dict, voxel: float, dist_thr: float, eps: float) -> tuple[dict, 
                      "low_kept_ratio": round(int((low & ~ground).sum()) / n_low, 4) if n_low else float("nan"),
                      "best_cluster_pts": best, "detected": int(best >= MIN_PTS)})
     summary = {"n_down": len(down), "n_ground": int(ground.sum()), "n_obstacle_roi": len(obst),
-               "n_clusters": len(big), "nearest_cluster_m": round(float(near), 2)}
+               "n_clusters": len(big), "n_flat_clusters": flat, "nearest_cluster_m": round(float(near), 2)}
     return summary, objs
 
 
@@ -145,18 +164,24 @@ def configs(args) -> list[tuple[str, float, float]]:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--data-root", default="data/kitti_mini")
-    ap.add_argument("--frames", nargs="+", default=["000011", "000015", "000019", "000004"])
-    ap.add_argument("--voxel", type=float, default=0.1)
-    ap.add_argument("--dist-levels", nargs="+", type=float, default=[0.1, 0.2, 0.3, 0.4])
-    ap.add_argument("--eps-levels", nargs="+", type=float, default=[0.3, 0.5, 0.8])
-    ap.add_argument("--base-dist", type=float, default=0.1)
-    ap.add_argument("--base-eps", type=float, default=0.5)
-    ap.add_argument("--latency-reps", type=int, default=0, help=">0: đo latency, bỏ lần đầu, báo p50/p95")
-    ap.add_argument("--out", default="results/obstacle_sweep.csv")
-    ap.add_argument("--out-objects", default="results/obstacle_sweep_objects.csv")
-    ap.add_argument("--out-latency", default="results/obstacle_latency.csv")
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
+                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    ap.add_argument("--data-root", default="data/kitti_mini", help="thư mục dataset dạng KITTI")
+    ap.add_argument("--frames", nargs="+", default=["000011", "000015", "000019", "000004"],
+                    help="danh sách frame id cần chạy")
+    ap.add_argument("--voxel", type=float, default=0.1, help="kích thước voxel downsample (m)")
+    ap.add_argument("--dist-levels", nargs="+", type=float, default=[0.1, 0.2, 0.3, 0.4],
+                    help="các mức distance_threshold của RANSAC cần quét (m)")
+    ap.add_argument("--eps-levels", nargs="+", type=float, default=[0.3, 0.5, 0.8],
+                    help="các mức eps của DBSCAN cần quét (m)")
+    ap.add_argument("--base-dist", type=float, default=0.1, help="distance_threshold mốc, giữ cố định khi quét eps (m)")
+    ap.add_argument("--base-eps", type=float, default=0.5, help="eps mốc, giữ cố định khi quét distance_threshold (m)")
+    ap.add_argument("--latency-reps", type=int, default=0,
+                    help="> 0: đo latency mỗi cấu hình với số lần lặp này, bỏ lần đầu, báo p50/p95")
+    ap.add_argument("--out", default="results/obstacle_sweep.csv", help="CSV kết quả, mỗi dòng 1 frame × cấu hình")
+    ap.add_argument("--out-objects", default="results/obstacle_sweep_objects.csv",
+                    help="CSV kết quả, mỗi dòng 1 vật trong label × cấu hình")
+    ap.add_argument("--out-latency", default="results/obstacle_latency.csv", help="CSV latency (khi --latency-reps > 0)")
     args = ap.parse_args()
 
     rows, obj_rows, lat_rows = [], [], []
