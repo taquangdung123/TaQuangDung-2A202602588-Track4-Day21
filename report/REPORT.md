@@ -118,6 +118,8 @@ Use-case cụ thể (ADAS / robot / drone), trade-off và bước tiếp theo.
 Các lệnh tái tạo lại toàn bộ kết quả từ repo sạch.
 
 ```bash
+git clone -c core.longpaths=true https://github.com/taquangdung123/TaQuangDung-2A202602588-Track4-Day21.git   # Windows: tên file nuScenes rất dài
+cd TaQuangDung-2A202602588-Track4-Day21
 python -m venv venv && venv\Scriptsctivate      # Windows; Linux/macOS: source venv/bin/activate
 set PYTHONUTF8=1                                    # PowerShell: $env:PYTHONUTF8="1" (requirements.txt có tiếng Việt)
 pip install -r requirements.txt "open3d>=0.18"
@@ -127,6 +129,7 @@ python -m src.test_projection
 python -m starter.projection --data-root data/kitti_mini --frame 000011
 
 # CP2: demo topic D — voxel downsample + tách mặt đất RANSAC (BEV trước/sau)
+# (demo này dùng open3d.segment_plane, số điểm ground có thể lệch vài trăm giữa các lần chạy; mọi CSV ở CP3/bonus dùng RANSAC có seed nên chạy lại ra giống hệt)
 python -m src.obstacle_demo --frame 000011
 python -m src.obstacle_demo --frame 000019
 python -m src.obstacle_demo --frame 000004
