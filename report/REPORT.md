@@ -1,14 +1,14 @@
-# Báo cáo Day 6: [ĐIỀN tên đề tài ngắn]
+# Báo cáo Day 6: Ngưỡng RANSAC và vật cản thấp sát đất
 
 > Thay **mọi** ô có chữ ĐIỀN nằm trong ngoặc vuông bằng nội dung của bạn, xoá luôn cả dấu ngoặc vuông. Lệnh `python tools/check_submission.py` sẽ báo FAIL nếu còn sót bất kỳ chỗ nào.
 
-- **Họ tên:** [ĐIỀN]
-- **MSSV:** [ĐIỀN] (phải trùng với MSSV trong tên repo `<HoVaTen>-<MSSV>-Track4-Day21`)
-- **Lớp:** [ĐIỀN]
-- **Link repo:** [ĐIỀN]
-- **Topic:** [ĐIỀN một chữ cái A/B/C/D/E/F] — [ĐIỀN tên topic]
-- **Dataset:** [ĐIỀN một hoặc nhiều trong: data/synthetic, data/kitti_mini, data/nuscenes_mini_subset, log riêng]
-- **Các frame đã dùng:** [ĐIỀN danh sách frame id, ví dụ 000011, 000049 hoặc scene-0103_010]
+- **Họ tên:** Tạ Quang Dũng
+- **MSSV:** 2A202602588
+- **Lớp:** AI20K-T4
+- **Link repo:** https://github.com/taquangdung123/TaQuangDung-2A202602588-Track4-Day21.git
+- **Topic:** D — Robot/drone obstacle
+- **Dataset:** data/kitti_mini
+- **Các frame đã dùng:** 000011 (nhiều người đi bộ), 000019 (vật rất gần < 6 m), 000004 (xe xa > 50 m)
 
 > Hãy viết ngắn: mỗi mục từ 3 đến 8 dòng, ưu tiên số liệu và hình ảnh.
 
@@ -16,7 +16,7 @@
 
 Một câu khẳng định kỹ thuật có thể kiểm chứng. Ví dụ: *"Lệch yaw 1° làm 12% điểm LiDAR rơi ra khỏi vật thể ở 30 m, phát hiện được bằng edge-alignment score với ngưỡng X."*
 
-[ĐIỀN]
+**Claim (nháp, CP1):** Trên 3 frame KITTI 000011, 000019, 000004 (voxel_size = 0.1 m, DBSCAN eps = 0.5 m), tăng `distance_threshold` của RANSAC ground removal từ 0.1 m lên 0.3 m làm người đi bộ và cyclist trong label mất hơn 30% số điểm sau bước tách mặt đất, và làm tỉ lệ vật được phát hiện thành cluster (tâm cluster cách tâm GT box < 1 m) giảm hơn 20 điểm phần trăm, trong khi với xe con chỉ giảm dưới 5 điểm phần trăm.
 
 ## 2. Evidence
 
