@@ -8,7 +8,7 @@
 - **Link repo:** https://github.com/taquangdung123/TaQuangDung-2A202602588-Track4-Day21.git
 - **Topic:** D — Robot/drone obstacle
 - **Dataset:** data/kitti_mini
-- **Các frame đã dùng:** 000011, 000015 (nhiều người đi bộ), 000019 (vật rất gần < 6 m), 000004 (xe xa > 50 m)
+- **Các frame đã dùng:** 000011, 000015 (nhiều người đi bộ), 000019 (vật rất gần < 6 m), 000004 (xe xa > 50 m); bonus B1 chạy trên cả 20 frame của kitti_mini
 
 > Hãy viết ngắn: mỗi mục từ 3 đến 8 dòng, ưu tiên số liệu và hình ảnh.
 
@@ -16,7 +16,9 @@
 
 Một câu khẳng định kỹ thuật có thể kiểm chứng. Ví dụ: *"Lệch yaw 1° làm 12% điểm LiDAR rơi ra khỏi vật thể ở 30 m, phát hiện được bằng edge-alignment score với ngưỡng X."*
 
-**Claim (nháp, CP1):** Trên 3 frame KITTI 000011, 000019, 000004 (voxel_size = 0.1 m, DBSCAN eps = 0.5 m), tăng `distance_threshold` của RANSAC ground removal từ 0.1 m lên 0.3 m làm người đi bộ và cyclist trong label mất hơn 30% số điểm sau bước tách mặt đất, và làm tỉ lệ vật được phát hiện thành cluster (tâm cluster cách tâm GT box < 1 m) giảm hơn 20 điểm phần trăm, trong khi với xe con chỉ giảm dưới 5 điểm phần trăm.
+**Claim cuối:** Trên 4 frame KITTI (000011, 000015, 000019, 000004), tăng `distance_threshold` của RANSAC từ 0.1 m lên 0.3 m chỉ làm người đi bộ và xe mất thêm 17–21 điểm phần trăm số điểm (vẫn 14/15 vật thành cluster), nhưng làm phần thấp 0–0.5 m sát mặt đất mất hơn một nửa số điểm (còn 43.2% so với 86.7%). Vì vậy ngưỡng cao là nguy hiểm cho **vật thấp dưới 0.5 m**, không phải cho người đi bộ.
+
+**Claim ban đầu (CP1) và kết luận:** claim nháp nói tăng ngưỡng 0.1 → 0.3 m làm người đi bộ mất > 30% điểm và tỉ lệ phát hiện giảm > 20 điểm phần trăm, trong khi xe chỉ giảm < 5 điểm phần trăm. Số liệu **bác bỏ** claim này: người đi bộ mất 16.8, xe mất 21.0 điểm phần trăm (hai class gần như nhau vì đều cao ≥ 1.5 m), tỉ lệ phát hiện người đi bộ chỉ giảm 8/8 → 7/8.
 
 ## 2. Evidence
 
@@ -108,6 +110,7 @@ Use-case cụ thể (ADAS / robot / drone), trade-off và bước tiếp theo.
 - **Use-case:** robot tự hành trong kho (AMR), tốc độ ≤ 2 m/s, vật cản cần bắt được gồm cả vật thấp: pallet (~0.15 m), xe đẩy, người ngồi xổm.
 - **Chọn tham số:** RANSAC `dist_thr` **0.1 m** (không dùng 0.3 m: lát 0–0.5 m chỉ còn 43%), eps **0.5 m** (0.3 m làm vỡ người đi bộ, 0.8 m gộp vật gần nhau), cluster tối thiểu 10 điểm. Sàn kho phẳng hơn đường phố, nên ngưỡng 0.1 m ít bị lỗi fail 01 hơn trên KITTI.
 - **Trade-off:** ngưỡng thấp → báo nhầm mặt sàn là vật cản (fail 01, robot phanh vô cớ); ngưỡng cao → mất vật thấp và vật xa ít điểm (fail 02). Với robot, phanh nhầm rẻ hơn đâm vào pallet, nên ưu tiên ngưỡng thấp, rồi lọc cụm dẹt (dày < 0.2 m, diện tích > 2 m²) thay vì tăng ngưỡng.
+- **Chỉ số cần ghi log (mỗi frame, gộp theo phút):** (1) số cụm dẹt (dày < 0.2 m, > 2 m²) trong vùng 5 m quanh robot, > 0 trong 10 frame liên tiếp thì cảnh báo mô hình mặt đất sai (fail 01); (2) pháp tuyến và độ cao mặt phẳng RANSAC, lệch > 5° hoặc > 0.1 m so với giá trị lắp đặt thì cảnh báo sàn dốc hoặc cảm biến bị xê dịch; (3) số cluster/frame, giảm > 30% so với trung bình 1 phút trước thì cảnh báo mất điểm (B2: dropout 30% làm số cluster giảm 69 → 43); (4) latency p95, > 200 ms thì giảm tần số hoặc thu nhỏ ROI.
 - **Bước tiếp theo:** (1) fit mặt đất theo từng ô lưới thay cho 1 mặt phẳng; (2) đo recall trên vật thấp thật (KITTI không có label pallet, cần tự thu dữ liệu kho); (3) tăng tốc voxel để đạt 10 Hz (hiện p50 167 ms trên Ryzen 5 5600H, B3); (4) giám sát khi chạy: cảnh báo nếu số cụm dẹt > 0 trong vùng 5 m, hoặc số cluster/frame giảm đột ngột (dấu hiệu mất điểm như B2).
 
 ## 5. Cách chạy lại
@@ -157,4 +160,4 @@ Ghi rõ đã dùng công cụ AI nào, dùng vào việc gì, và bạn đã t�
 
 | Công cụ | Dùng cho việc gì | Bạn đã kiểm chứng thế nào |
 |---|---|---|
-| Claude Code (Claude Opus 5.5) | Viết 2 hàm TODO(CP2), `src/obstacle_demo.py`, `src/exp_obstacle_sweep.py`, `src/plot_obstacle_sweep.py`, `src/fail_cases.py`, `src/exp_obstacle_bonus.py` và bản nháp các mục REPORT. Không dùng script mẫu topic A (chỉ chép lại hàm `points_in_box`). | `python -m src.test_projection` pass; 3 lệnh overlay khớp đúng 3910 / 19946 / 3120 điểm; mặt phẳng RANSAC có pháp tuyến ≈ (0, 0, 1) và cách sensor ≈ 1.7 m; chạy lại thí nghiệm 2 lần ra CSV giống hệt; [ĐIỀN: phần tự kiểm tra của bạn] |
+| Claude Code (Claude Opus 5.5) | Viết 2 hàm TODO(CP2), `src/obstacle_demo.py`, `src/exp_obstacle_sweep.py`, `src/plot_obstacle_sweep.py`, `src/fail_cases.py`, `src/exp_obstacle_bonus.py` và bản nháp các mục REPORT. Không dùng script mẫu topic A (chỉ chép lại hàm `points_in_box`). | `python -m src.test_projection` pass; 3 lệnh overlay khớp đúng 3910 / 19946 / 3120 điểm; mặt phẳng RANSAC có pháp tuyến ≈ (0, 0, 1) và cách sensor ≈ 1.7 m; chạy lại thí nghiệm 2 lần ra CSV giống hệt; đối chiếu số trong bảng mục 2 với CSV; mở từng ảnh overlay, BEV và fail_* để xem điểm khớp vật thể; clone repo sạch và chạy lại toàn bộ lệnh mục 5 ra cùng số liệu |
