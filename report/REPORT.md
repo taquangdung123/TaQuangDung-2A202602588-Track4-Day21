@@ -45,9 +45,27 @@ Thí nghiệm: voxel 0.1 m → RANSAC tách mặt đất (numpy, seed = 0) → D
 
 Nêu khi nào hệ thống hoặc phương pháp fail, vì sao fail, và liên hệ tới lớp nào trong 6 lớp debug: I/O, Geometry, Time, Preprocess, Model, Metric.
 
-![failure](../results/figures/fail_[ĐIỀN].png)
+Hai failure case ngược chiều nhau, cho thấy `distance_threshold` không có giá trị nào an toàn cho cả hai phía. Tạo lại ảnh: `python -m src.fail_cases`.
 
-[ĐIỀN]
+### Fail 01: mặt đường bị báo là vật cản gần nhất (ngưỡng thấp)
+
+![fail 01](../results/figures/fail_01_ground_false_obstacle.png)
+
+- **Trường hợp:** KITTI frame 000004, voxel 0.1 m, `dist_thr = 0.1 m`, eps 0.5 m.
+- **Quan sát:** vật cản gần nhất được báo ở **4.02 m**, là một cụm 706 điểm, kích thước 10.2 × 2.8 m nhưng chỉ dày **0.14 m**, nằm **thấp hơn** mặt phẳng RANSAC 0.10–0.18 m. Chiếu lên ảnh, cụm này nằm trên mặt đường/lề đường bên phải, không có vật nào ở đó. Khi tăng lên 0.2 m, cụm biến mất và vật cản gần nhất thật là 7.89 m (cụm cao 0.20–2.09 m). Báo sai gần gấp đôi khoảng cách thật.
+- **Nguyên nhân:** RANSAC chỉ fit **một mặt phẳng** cho cả ROI 40 m. Mặt đường thật bị nghiêng ngang (camber) và dốc dần về lề, nên phần đường phía bên phải thấp hơn mặt phẳng đã fit hơn 0.1 m. Các điểm đường đó nằm ngoài ngưỡng ±0.1 m nên bị coi là "không phải ground" và DBSCAN gom chúng thành một cụm lớn.
+- **Lớp debug:** Preprocess (mô hình mặt đất một mặt phẳng + ngưỡng quá chặt so với độ cong của đường). Không phải Geometry: calibration và plane fit đều đúng (pháp tuyến ≈ (0, 0, 1), sensor cao ≈ 1.73 m).
+- **Cách phát hiện khi chạy thật:** cảnh báo cluster "dẹt": chiều cao cụm < 0.2 m mà diện tích > 2 m², hoặc toàn bộ điểm nằm **dưới** mặt phẳng ground. Cách sửa: fit mặt đất theo từng ô/sector (ví dụ lưới 10 m) thay vì một mặt phẳng.
+
+### Fail 02: người đi bộ bị che biến mất (ngưỡng cao)
+
+![fail 02](../results/figures/fail_02_occluded_pedestrian_lost.png)
+
+- **Trường hợp:** KITTI frame 000011, người đi bộ ở 14.5 m, bị che nhiều (`occluded = 2`), chỉ có 24 điểm LiDAR sau voxel 0.1 m.
+- **Quan sát:** `dist_thr` 0.1 m: ground lấy 8/24 điểm, cụm lớn nhất 10 điểm → vừa đủ ngưỡng (≥ 10), phát hiện. 0.2 m: ground lấy 10 điểm, phần chân còn lại (8 điểm đỏ) không tạo được cụm ≥ 10, 6 điểm thân trên bị gộp chung vào một cụm khác ở ngoài box → **bỏ sót**. 0.3 m: ground lấy 15/24 điểm.
+- **Nguyên nhân:** 17/24 điểm của người này nằm trong 0–0.5 m trên mặt đất (chân), vì thân trên bị cột/biển che. LiDAR 64 beam ở 14.5 m chỉ có vài beam quét trúng người. Tăng ngưỡng làm mất phần chân, phần còn lại quá thưa nên DBSCAN (eps 0.5 m, min 10 điểm) không gom được.
+- **Lớp debug:** Preprocess (ngưỡng ground + ngưỡng số điểm tối thiểu của cụm), cộng thêm giới hạn sensor (mật độ beam ở xa, vật bị che).
+- **Cách phát hiện khi chạy thật:** theo dõi `low_kept_ratio` (tỉ lệ điểm 0–0.5 m còn lại, ở CP3 giảm 86.7% → 43.2% khi 0.1 → 0.3 m); cảnh báo khi có cụm ≥ 3 điểm nằm sát mặt đất nhưng bị loại do < 10 điểm trong vùng 20 m quanh robot.
 
 ## 4. Khuyến nghị nếu triển khai thật
 
@@ -76,6 +94,9 @@ python -m src.obstacle_demo --frame 000004
 # CP3: quét dist_thr (0.1/0.2/0.3/0.4 m) và eps (0.3/0.5/0.8 m), có đo latency, rồi vẽ biểu đồ
 python -m src.exp_obstacle_sweep --latency-reps 20
 python -m src.plot_obstacle_sweep
+
+# CP4: ảnh failure case
+python -m src.fail_cases
 ```
 
 ## 6. Khai báo sử dụng AI
