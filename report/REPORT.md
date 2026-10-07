@@ -47,7 +47,18 @@ Use-case cụ thể (ADAS / robot / drone), trade-off và bước tiếp theo.
 Các lệnh tái tạo lại toàn bộ kết quả từ repo sạch.
 
 ```bash
-[ĐIỀN]
+python -m venv venv && venv\Scriptsctivate      # Windows; Linux/macOS: source venv/bin/activate
+set PYTHONUTF8=1                                    # PowerShell: $env:PYTHONUTF8="1" (requirements.txt có tiếng Việt)
+pip install -r requirements.txt "open3d>=0.18"
+
+# CP2: kiểm tra phép chiếu + overlay
+python -m src.test_projection
+python -m starter.projection --data-root data/kitti_mini --frame 000011
+
+# CP2: demo topic D — voxel downsample + tách mặt đất RANSAC (BEV trước/sau)
+python -m src.obstacle_demo --frame 000011
+python -m src.obstacle_demo --frame 000019
+python -m src.obstacle_demo --frame 000004
 ```
 
 ## 6. Khai báo sử dụng AI
